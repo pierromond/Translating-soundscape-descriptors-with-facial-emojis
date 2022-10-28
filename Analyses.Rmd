@@ -1,0 +1,245 @@
+---
+title: "Analysis_Facial_Emoji"
+author: "Pierre Aumond"
+year : "2022/10/28"
+chunk_output_type: console
+output:
+   html_document: 
+     highlight: kate
+     toc: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+# R libs
+
+Import libraries
+
+```{r, echo = FALSE, message = FALSE}
+library(jsonlite)
+library(dplyr)
+library(readxl)
+library(PCAmixdata)
+library(FactoMineR)
+library(factoextra)
+library(pracma)
+library(gridExtra)
+library(corrplot)
+library(ggrepel)
+library("PerformanceAnalytics")
+```
+
+# Import and prepare data
+
+then... databases 
+and filter participants for french experiment 
+
+```{r, echo = FALSE, message = FALSE}
+data_sm<-jsonlite::read_json(path="Data/match_table_sm.json", simplifyVector=TRUE) # emojis expe (smiley) expe
+data_fr<-jsonlite::read_json(path="Data/match_table_fr.json", simplifyVector=TRUE) # french expe
+
+TE <- readxl::read_xlsx("Data/evaluation.xlsx") # Some additional data for french expe
+data_fr <- merge(data_fr,TE) %>% filter(francophonie==2, succes==2) #only native french and with a full completion of the test
+```
+
+Filter and aggregate (mean) on file names
+
+```{r, echo = FALSE, message = FALSE}
+data_sm_num <- data_sm  %>% select(starts_with("smi"), "file1_name")  %>% group_by(file1_name) %>% summarise_all(mean) %>% ungroup() %>% as.data.frame()
+
+data_fr_num <- data_fr  %>% select(contains("_"), -"niveau_sonore", "file1_name")  %>% group_by(file1_name) %>% summarise_all(mean) %>% ungroup() %>% as.data.frame()
+
+```
+
+# Age & Number of participants
+
+```{r, echo = FALSE, message = FALSE}
+fr_mean <- mean(as.numeric(data_fr$age))
+fr_std <- sd(as.numeric(data_fr$age))
+fr_nb <- length(unique(data_fr$username))
+
+sm_mean <-mean(as.numeric(data_sm$age), na.rm = TRUE)
+sm_std <- sd(as.numeric(data_sm$age), na.rm = TRUE)
+sm_nb <- nrow(unique(data_sm[c("username", "genre", "age")]))
+```
+
+fr, age: `r fr_mean`, `r fr_std`
+sm, age: `r sm_mean`, `r sm_std`
+
+fr, nb participants:`r fr_nb`
+sm, nb participants:`r sm_nb`
+
+
+
+# Analysis
+
+## Emojis PCA analysis
+
+```{r, echo = FALSE}
+
+data_sm_num$file1_name <- as.character(data_sm_num$file1_name)
+data_sm.pca2 <- FactoMineR::PCA(data_sm_num,quali.sup = 1, graph = FALSE)
+
+fviz_eig(data_sm.pca2, addlabels = TRUE, ylim = c(0, 70))
+
+
+# Colorer en fonction du cos2: qualité de représentation
+fviz_pca_var(data_sm.pca2, col.var = "cos2",
+             gradient.cols = c("grey", "black"),
+             repel = TRUE # Évite le chevauchement de texte
+             )
+
+# Colorer en fonction du cos2: qualité de représentation
+fviz_pca_var(data_sm.pca2, col.var = "cos2",axes = c(2, 3),
+             gradient.cols = c("grey", "black"),
+             repel = TRUE # Évite le chevauchement de texte
+             )
+
+var <- get_pca_var(data_sm.pca2)
+corrplot(var$cos2, is.corr=FALSE)
+
+# Contributions des variables à PC1
+fviz_contrib(data_sm.pca2, choice = "var", axes = 1, top = 10)
+# Contributions des variables à PC2
+fviz_contrib(data_sm.pca2, choice = "var", axes = 2, top = 10)
+# Contributions des variables à PC1 et PC2
+fviz_contrib(data_sm.pca2, choice = "var", axes = c(1,2), top = 10)
+# Contributions des variables à PC3
+fviz_contrib(data_sm.pca2, choice = "var", axes = 3, top = 10)
+
+```
+
+## French PCA analysis
+
+```{r, echo = FALSE}
+
+data_fr.pca2 <- FactoMineR::PCA(data_fr_num,quali.sup = 1, graph = FALSE)
+
+fviz_eig(data_fr.pca2, addlabels = TRUE, ylim = c(0, 50))
+
+
+# Colorer en fonction du cos2: qualité de représentation
+fviz_pca_var(data_fr.pca2, col.var = "cos2",
+             gradient.cols = c("grey", "black"),
+             repel = TRUE # Évite le chevauchement de texte
+             )
+var <- get_pca_var(data_fr.pca2)
+corrplot(var$cos2, is.corr=FALSE)
+
+# Contributions des variables à PC1
+fviz_contrib(data_fr.pca2, choice = "var", axes = 1, top = 10)
+# Contributions des variables à PC2
+fviz_contrib(data_fr.pca2, choice = "var", axes = 2, top = 10)
+# Contributions des variables à PC2
+fviz_contrib(data_fr.pca2, choice = "var", axes = 3, top = 10)
+
+
+```
+
+## French vs Emojis
+
+```{r, echo = FALSE}
+
+data_sm_num2 <- data_sm_num %>% select(starts_with("smi"))
+proj = cos(deg2rad(45))
+data_scaled_num <- 1+data_sm_num2/25
+
+p= data_scaled_num$smi9
+a = data_scaled_num$smi10
+ca = data_scaled_num$smi8
+ch = 5 - data_scaled_num$smi8
+v = data_scaled_num$smi2
+m = 5- data_scaled_num$smi2
+e = data_scaled_num$smi3
+u = 5- data_scaled_num$smi3
+
+# P =(p−a)+cos45°*(ca−ch)+cos45°*(v−m)
+complex_pleasant_sm = (
+  ( p-a )
+  + proj * (ca-ch)
+  + proj * (v-m)
+)
+
+# E =(e−u)+cos45°*(ch−ca)+cos45°*(v−m)
+complex_eventful_sm = (
+  (e-u)
+  + proj * (ch−ca)
+  + proj * (v−m)
+)
+
+data_sm_num$ISOPleasant = complex_pleasant_sm *(1/(4+sqrt(32)))
+data_sm_num$ISOEventful = complex_eventful_sm *(1/(4+sqrt(32)))
+
+data_fr_num2 <- data_fr_num %>% select(contains("_"), -"file1_name")
+data_scaled_num <- 1+data_fr_num2/25
+
+# P =(p−a)+cos45°*(ca−ch)+cos45°*(v−m)
+complex_pleasant_fr = (
+  (data_scaled_num$Plaisan_Agreable - data_scaled_num$Genant_Derangeant)
+  + proj * (data_scaled_num$Calme_Tranquille -data_scaled_num$Agite_Chaotique )
+  + proj * (data_scaled_num$Stimulant_Dynamique-data_scaled_num$Ennuyeux_Monotone )
+)
+
+# E =(e−u)+cos45°*(ch−ca)+cos45°*(v−m)
+complex_eventful_fr = (
+  (data_scaled_num$Anime_Mouvemente - data_scaled_num$Inerte_Amorphe )
+  + proj * (data_scaled_num$Agite_Chaotique-data_scaled_num$Calme_Tranquille )
+  + proj * (data_scaled_num$Stimulant_Dynamique -data_scaled_num$Ennuyeux_Monotone )
+)
+
+data_fr_num$ISOPleasant = complex_pleasant_fr *(1/(4+sqrt(32)))
+data_fr_num$ISOEventful = complex_eventful_fr *(1/(4+sqrt(32)))
+
+
+
+# plot
+g1<-ggplot(data_sm_num, aes(x=ISOPleasant , y=ISOEventful, label=file1_name))+
+  geom_point() +
+  geom_text_repel() + 
+  xlim(-1.25, 1.25)+
+  ylim(-1.25, 1.25)+ theme_bw()+ 
+  theme(panel.grid.major.x = element_line(colour = "gray", linetype = "dotted"))+geom_hline(yintercept=0,linetype=2)+geom_vline(xintercept=0,linetype=2)
+
+g2<-ggplot(data_fr_num, aes(x=ISOPleasant , y=ISOEventful, label=file1_name))+
+  geom_point() +
+  geom_text_repel() + 
+  xlim(-1.25, 1.25)+
+  ylim(-1.25, 1.25)+ theme_bw()+ 
+  theme(panel.grid.major.x = element_line(colour = "gray", linetype = "dotted"))+geom_hline(yintercept=0,linetype=2)+geom_vline(xintercept=0,linetype=2)
+
+g1
+g2
+grid.arrange(g1, g2, ncol=2)
+
+res<-merge(data_sm_num,data_fr_num, by="file1_name",suffixes = c(".sm",".fr"))  %>% select(ISOPleasant.fr, ISOEventful.fr,ISOPleasant.sm, ISOEventful.sm)
+
+my_data <- res
+chart.Correlation(res, histogram=TRUE, pch=19)
+
+chart.Correlation(res, histogram=TRUE, pch=19, method = "spearman")
+
+```
+
+Reproject ISO axis
+
+```{r, echo = FALSE, message = FALSE}
+
+data_sm_num$file1_name <- as.character(data_sm_num$file1_name)
+data_sm_num <- data_sm_num %>% select(smi9, smi10, smi8, smi2, smi3, file1_name, ISOPleasant, ISOEventful)
+data_sm.pca2 <- FactoMineR::PCA(data_sm_num,quanti.sup = 7:8, quali.sup = 6, graph = FALSE)
+
+fviz_pca_var(data_sm.pca2, col.var = "cos2",
+             gradient.cols = c("grey", "black"),
+             repel = TRUE # Évite le chevauchement de texte
+             )
+
+
+data_fr.pca2 <- FactoMineR::PCA(data_fr_num,quanti.sup = 10:11,quali.sup = 1, graph = FALSE)
+
+fviz_pca_var(data_fr.pca2, col.var = "cos2",
+             gradient.cols = c("grey", "black"),
+             repel = TRUE # Évite le chevauchement de texte
+             )
+
+
+```
